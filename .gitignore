@@ -11,3 +11,7 @@ results/
 # Ignore datasets and tests
 dataset/
 tests/
+
+# Ignore future app
+future_applications/
+*.pdf
