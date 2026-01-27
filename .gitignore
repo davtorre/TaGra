@@ -15,4 +15,5 @@ tests/
 # Ignore future app
 future_applications/
 *.pdf
-*/__pycache__\
+*/__pycache__/
+__pycache__/
