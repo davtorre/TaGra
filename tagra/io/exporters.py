@@ -1,0 +1,321 @@
+"""
+Export functions for TaGra graphs.
+
+This module provides export functionality for various visualization
+and analysis tools including Cytoscape.
+"""
+
+from datetime import datetime
+from typing import Optional, Dict, Any, Union, List
+import json
+import os
+
+import networkx as nx
+import numpy as np
+
+from ..exceptions import IOError
+
+
+def export_cytoscape(
+    graph: Union[nx.Graph, 'TaGraGraph'],
+    filepath: str,
+    positions: Optional[Union[np.ndarray, Dict[int, tuple]]] = None,
+    target_attribute: Optional[str] = None,
+    format: str = 'cyjs',
+    verbose: bool = True
+) -> None:
+    """
+    Export graph to Cytoscape-compatible format.
+
+    Parameters
+    ----------
+    graph : nx.Graph or TaGraGraph
+        Graph to export
+    filepath : str
+        Output file path
+    positions : np.ndarray or dict, optional
+        Node positions (x, y coordinates)
+    target_attribute : str, optional
+        Attribute for node coloring
+    format : str, default='cyjs'
+        Export format: 'cyjs' (Cytoscape Desktop), 'json' (Cytoscape.js)
+    verbose : bool, default=True
+        Print progress messages
+
+    Examples
+    --------
+    >>> export_cytoscape(G, 'graph.cyjs', positions=pos)
+    """
+    # Handle TaGraGraph
+    if hasattr(graph, 'to_networkx'):
+        G = graph.to_networkx()
+        if positions is None and hasattr(graph, 'get_positions_dict'):
+            positions = graph.get_positions_dict()
+    else:
+        G = graph
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+
+    if verbose:
+        print(f"{datetime.now()}: Exporting graph to Cytoscape format: {filepath}")
+
+    # Process positions
+    pos_dict = _process_positions(positions, G.number_of_nodes())
+    scaled_pos = _scale_positions(pos_dict)
+
+    # Build data structure
+    if format == 'cyjs':
+        data = _build_cytoscape_desktop_format(G, scaled_pos, target_attribute)
+    else:
+        data = _build_cytoscapejs_format(G, scaled_pos, target_attribute)
+
+    try:
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+        if verbose:
+            print(f"{datetime.now()}: Exported to {filepath} ({format} format)")
+    except Exception as e:
+        raise IOError(f"Failed to export to {filepath}: {str(e)}")
+
+
+def _process_positions(
+    positions: Optional[Union[np.ndarray, Dict[int, tuple]]],
+    n_nodes: int
+) -> Dict[int, tuple]:
+    """Convert positions to dictionary format."""
+    if positions is None:
+        return {}
+
+    if isinstance(positions, dict):
+        return {int(k): (float(v[0]), float(v[1])) for k, v in positions.items()}
+    else:
+        # Assume numpy array
+        return {i: (float(positions[i, 0]), float(positions[i, 1]))
+                for i in range(min(len(positions), n_nodes))}
+
+
+def _scale_positions(
+    pos: Dict[int, tuple],
+    scale: float = 1000
+) -> Dict[int, tuple]:
+    """Scale positions to reasonable pixel coordinates."""
+    if not pos:
+        return {}
+
+    x_vals = [p[0] for p in pos.values()]
+    y_vals = [p[1] for p in pos.values()]
+
+    x_min, x_max = min(x_vals), max(x_vals)
+    y_min, y_max = min(y_vals), max(y_vals)
+
+    x_range = x_max - x_min if x_max != x_min else 1
+    y_range = y_max - y_min if y_max != y_min else 1
+
+    padding = scale * 0.1
+    effective_scale = scale - 2 * padding
+
+    scaled = {}
+    for node, (x, y) in pos.items():
+        scaled_x = padding + ((x - x_min) / x_range) * effective_scale
+        scaled_y = padding + ((y - y_min) / y_range) * effective_scale
+        scaled[node] = (scaled_x, scaled_y)
+
+    return scaled
+
+
+def _build_cytoscape_desktop_format(
+    G: nx.Graph,
+    positions: Dict[int, tuple],
+    target_attribute: Optional[str]
+) -> Dict[str, Any]:
+    """Build Cytoscape Desktop JSON format."""
+    nodes = []
+    for node in G.nodes():
+        node_data = {
+            'id': str(node),
+            'name': str(node),
+            'SUID': node
+        }
+        # Add attributes
+        for key, value in G.nodes[node].items():
+            if isinstance(value, (int, float, str, bool)):
+                node_data[key] = value
+            else:
+                node_data[key] = str(value)
+
+        node_entry = {'data': node_data}
+        if node in positions:
+            node_entry['position'] = {'x': positions[node][0], 'y': positions[node][1]}
+        nodes.append(node_entry)
+
+    edges = []
+    for i, (source, target) in enumerate(G.edges()):
+        edges.append({
+            'data': {
+                'id': str(i),
+                'source': str(source),
+                'target': str(target),
+                'SUID': i
+            }
+        })
+
+    return {
+        'format_version': '1.0',
+        'generated_by': 'TaGra',
+        'target_cytoscapeVersion': '3.9',
+        'data': {
+            'name': 'TaGra Graph',
+            'description': 'Graph generated by TaGra from tabular data'
+        },
+        'elements': {
+            'nodes': nodes,
+            'edges': edges
+        }
+    }
+
+
+def _build_cytoscapejs_format(
+    G: nx.Graph,
+    positions: Dict[int, tuple],
+    target_attribute: Optional[str]
+) -> Dict[str, Any]:
+    """Build Cytoscape.js JSON format."""
+    nodes = []
+    for node in G.nodes():
+        node_data = {'id': str(node)}
+        for key, value in G.nodes[node].items():
+            if isinstance(value, (int, float, str, bool)):
+                node_data[key] = value
+            else:
+                node_data[key] = str(value)
+
+        node_entry = {'data': node_data}
+        if node in positions:
+            node_entry['position'] = {'x': positions[node][0], 'y': positions[node][1]}
+        nodes.append(node_entry)
+
+    edges = []
+    for i, (source, target) in enumerate(G.edges()):
+        edges.append({
+            'data': {
+                'id': f'e{i}',
+                'source': str(source),
+                'target': str(target)
+            }
+        })
+
+    return {
+        'elements': {
+            'nodes': nodes,
+            'edges': edges
+        },
+        'layout': {'name': 'preset'}
+    }
+
+
+def export_graphml(
+    graph: Union[nx.Graph, 'TaGraGraph'],
+    filepath: str,
+    positions: Optional[Union[np.ndarray, Dict[int, tuple]]] = None,
+    verbose: bool = True
+) -> None:
+    """
+    Export graph to GraphML format.
+
+    GraphML is supported by many graph visualization tools including
+    Cytoscape, Gephi, and yEd.
+
+    Parameters
+    ----------
+    graph : nx.Graph or TaGraGraph
+        Graph to export
+    filepath : str
+        Output file path
+    positions : np.ndarray or dict, optional
+        Node positions to include as attributes
+    verbose : bool, default=True
+        Print progress messages
+
+    Examples
+    --------
+    >>> export_graphml(G, 'graph.graphml')
+    """
+    # Handle TaGraGraph
+    if hasattr(graph, 'to_networkx'):
+        G = graph.to_networkx().copy()
+        if positions is None and hasattr(graph, 'get_positions_dict'):
+            positions = graph.get_positions_dict()
+    else:
+        G = graph.copy()
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+
+    if verbose:
+        print(f"{datetime.now()}: Exporting graph to GraphML: {filepath}")
+
+    # Add positions as node attributes
+    if positions is not None:
+        pos_dict = _process_positions(positions, G.number_of_nodes())
+        for node in G.nodes():
+            if node in pos_dict:
+                G.nodes[node]['x'] = pos_dict[node][0]
+                G.nodes[node]['y'] = pos_dict[node][1]
+
+    try:
+        nx.write_graphml(G, filepath)
+        if verbose:
+            print(f"{datetime.now()}: Exported to {filepath}")
+    except Exception as e:
+        raise IOError(f"Failed to export to {filepath}: {str(e)}")
+
+
+def export_adjacency_matrix(
+    graph: Union[nx.Graph, 'TaGraGraph'],
+    filepath: str,
+    format: str = 'csv',
+    verbose: bool = True
+) -> None:
+    """
+    Export graph adjacency matrix.
+
+    Parameters
+    ----------
+    graph : nx.Graph or TaGraGraph
+        Graph to export
+    filepath : str
+        Output file path
+    format : str, default='csv'
+        Output format: 'csv', 'npy' (numpy)
+    verbose : bool, default=True
+        Print progress messages
+    """
+    import pandas as pd
+
+    # Handle TaGraGraph
+    if hasattr(graph, 'to_networkx'):
+        G = graph.to_networkx()
+    else:
+        G = graph
+
+    if verbose:
+        print(f"{datetime.now()}: Exporting adjacency matrix to: {filepath}")
+
+    adj_matrix = nx.to_numpy_array(G)
+
+    os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+
+    try:
+        if format == 'csv':
+            df = pd.DataFrame(adj_matrix, index=list(G.nodes()), columns=list(G.nodes()))
+            df.to_csv(filepath)
+        elif format == 'npy':
+            np.save(filepath, adj_matrix)
+        else:
+            raise IOError(f"Unsupported format: {format}")
+
+        if verbose:
+            print(f"{datetime.now()}: Adjacency matrix exported")
+    except Exception as e:
+        raise IOError(f"Failed to export adjacency matrix: {str(e)}")
