@@ -4,9 +4,9 @@ import sys
 import argparse
 from datetime import datetime
 import pandas as pd
-from tagra.preprocessing import preprocess_dataframe
-from tagra.graph import create_graph
-from tagra.analysis import analyze_graph
+from tagra.preprocessing import preprocess
+from tagra.construction import build_graph
+from tagra.analysis import analyze
 from tagra.config import *
 from tagra.cytoscape_vis import CytoscapeVisualizer
 
@@ -17,7 +17,7 @@ def main(config_path, dataset_path, target_class):
     if target_class is not None:
         config['target_columns'] = target_class
     # Preprocessing
-    df_preprocessed, manifold_pos = preprocess_dataframe(
+    df_preprocessed, manifold_pos = preprocess(
         input_dataframe=config['input_dataframe'],
         output_directory=config['output_directory'],
         preprocessed_filename=config['preprocessed_filename'],
@@ -38,7 +38,7 @@ def main(config_path, dataset_path, target_class):
     )
 
     # Graph Creation
-    graph = create_graph(
+    tagra_graph = build_graph(
         input_dataframe=config['input_dataframe'],
         output_directory=config['output_directory'],
         graph_filename=config['graph_filename'],
@@ -52,17 +52,19 @@ def main(config_path, dataset_path, target_class):
         verbose=config['verbose'],
         overwrite=config['overwrite']
     )
+    # Convert to NetworkX graph for compatibility with CytoscapeVisualizer
+    graph = tagra_graph.to_networkx()
     if config['manifold_method'] is not None:
         pos = manifold_pos
     else:
         pos = None
 
     # Graph Analysis (without graph visualization - we'll use Cytoscape instead)
-    # Temporarily disable matplotlib visualization in analyze_graph
+    # Temporarily disable matplotlib visualization in analyze()
     original_viz_filename = config.get('graph_visualization_filename')
 
-    analyze_graph(
-        graph,
+    analyze(
+        tagra_graph,
         target_attributes=config['target_columns'],
         verbose=config['verbose'],
         output_directory=config['output_directory'],
