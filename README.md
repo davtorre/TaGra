@@ -802,10 +802,5 @@ This project is licensed under the MIT License. See the LICENSE file for more de
 # Support
 If you have any questions or need help, please feel free to open an issue on our GitHub repository.
 
-# Author
-Davide Torre: dtorre[at]luiss[dot]it
-Davide Chicco: davidechicco[at]davidechicco[dot]it
-
 ---
 Thank you for using TaGra! We hope it makes your data preprocessing and graph analysis tasks easier and more efficient.
-
