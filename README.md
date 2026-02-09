@@ -1,10 +1,10 @@
 # TaGra (Table to Graph)
 
-TaGra is a comprehensive Python library designed to simplify the preprocessing of data, the construction of graphs from data tables, and the analysis of those graphs. It provides automated tools for handling missing data, scaling, encoding, manifold learning techniques and graph construction.
+TaGra is a comprehensive Python library designed to simplify the preprocessing of data, the construction of graphs from data tables, and the analysis of those graphs. It provides automated tools for handling missing data, scaling, encoding, manifold learning techniques, graph construction, and machine learning on graph-structured data.
 
 ## Scope of TaGra
 
-TaGra achieves three primary objectives:
+TaGra achieves four primary objectives:
 
 1. **Automatic Data Preprocessing**: TaGra automates the preprocessing of tabular data, handling missing values, scaling numeric features, encoding categorical variables and manifold learning techniques based on user-defined configurations.
 
@@ -15,11 +15,56 @@ TaGra achieves three primary objectives:
 
 When creating the graph, each row together with all its features is mapped to a node and an edge between two rows is created using the methods described above.
 
-3. **Basic Graph Analysis**: TaGra provides functions to analyze the generated graphs, including degree distribution and community composition analysis.
+3. **Graph Analysis**: TaGra provides functions to analyze the generated graphs, including degree distribution, community composition analysis, homophily metrics, and various visualization options.
+
+4. **Machine Learning on Graphs**: TaGra includes powerful ML capabilities that leverage graph structure for semi-supervised learning, data augmentation, anomaly detection, and missing value imputation.
+
+## Migration from v0.2.x to v0.3.0
+
+TaGra v0.3.0 introduces a new modular API while maintaining backward compatibility.
+
+### What Changed
+
+**v0.2.x (Old API - Still Works)**
+```python
+from tagra import preprocess_dataframe, create_graph, analyze_graph
+
+# Old workflow
+df_prep, pos = preprocess_dataframe(df, target_columns=['label'])
+G = create_graph(df_prep, method='knn', k=5)
+metrics = analyze_graph(G, target_attributes='label')
+```
+
+**v0.3.0 (New API - Recommended)**
+```python
+import tagra
+
+# New workflow - simpler and more intuitive
+graph = tagra.from_dataframe(df, target='label', method='knn', k=5)
+metrics = tagra.analyze(graph, target_attribute='label')
+tagra.visualize(graph, output='graph.png')
+```
+
+### New Features in v0.3.0
+
+1. **TaGraGraph Class**: Graphs now use a custom wrapper with metadata
+2. **Machine Learning Module**: Label propagation, augmentation, anomaly detection, imputation
+3. **Modular Structure**: Organized into subpackages (`tagra.ml`, `tagra.preprocessing`, etc.)
+4. **Convenience Functions**: `from_dataframe()`, `analyze()`, `visualize()`
+
+### Breaking Changes
+
+**None!** The old API continues to work with deprecation warnings. You can update at your own pace.
+
+### Migration Strategy
+
+1. **Immediate**: Start using `tagra.from_dataframe()` for new projects
+2. **Short-term**: Update existing code to use new convenience functions
+3. **Before v1.0.0**: Remove all usage of deprecated functions
 
 ## Configuration File
 
-The configuration file is a JSON file that contains all the settings required for preprocessing and graph creation. Below are the key settings:
+The configuration file is a JSON file that contains all the settings required for preprocessing and graph creation. It's primarily used with the `go.py` CLI script. Below are the key settings:
 
 - `input_dataframe`: Path to the input DataFrame. Supported extensions are csv, xlsx, pickle, json, parquet, hdf, h5.
 - `output_directory`: Path to the folder where the results will be collected. If not specified, the current directory is used.
@@ -92,19 +137,40 @@ To install TaGra, simply use pip:
 ```sh
 pip install tagra
 ```
+
 ## Quickstart
+
+### New API (v0.3.0 - Recommended)
+
+```python
+import tagra
+import pandas as pd
+
+# Load your data
+df = pd.read_csv('data.csv')
+
+# Create graph with one line
+graph = tagra.from_dataframe(df, target='label', method='knn', k=5)
+
+# Analyze the graph
+metrics = tagra.analyze(graph, target_attribute='label')
+print(f"Homophily: {metrics['homophily_score']:.4f}")
+
+# Visualize
+tagra.visualize(graph, output='graph.png')
+```
+
+### Using the CLI
+
 ```sh
+# With config file
 python3 go.py -c examples/config.json
-```
-You can edit the option in ```examples/config.json``` and adapt them as you wish.
-The default option will produce a prepreocessing and a graph based on the ```moons``` dataset (SciKit Learn).
 
-### Quickerstart
-
-```sh
-python3 go.py -d path/to/dataframe -a class_name
+# Direct usage
+python3 go.py -d path/to/dataframe.csv -a class_name
 ```
-This will preprocess, make the knn graph of path/to/dataframe. Optionally you can add the name of the target column with `-a`.
+
+The CLI will preprocess the data, create a KNN graph, and perform analysis. You can customize options in `examples/config.json`.
 # Usage
 
 ## Settings
@@ -140,8 +206,255 @@ The settings can be specified in a configuration file. It must be a JSON file th
 - `overwrite`: A flag indicating whether to overwrite the results of experiments or not. If set to False, all output filenames are equipped with a timestamp, otherwise outputs are overwritten.
 # TaGra API Reference
 
-## Core API Components
-### 1. Data Preprocessing
+## New API (v0.3.0 - Recommended)
+
+TaGra v0.3.0 introduces a new modular API with convenience functions for common workflows.
+
+### Convenience Functions
+
+#### `tagra.from_dataframe()`
+Main entry point for creating graphs from DataFrames.
+
+```python
+import tagra
+
+graph = tagra.from_dataframe(
+    df,
+    target='label',           # Target column for analysis
+    method='knn',             # 'knn', 'distance', or 'similarity'
+    k=5,                      # Number of neighbors (for KNN)
+    scaling='standard',       # 'standard' or 'minmax'
+    encoding='one-hot',       # 'one-hot' or 'label'
+    manifold_method='UMAP',   # 'UMAP', 'TSNE', 'Isomap', or None
+    manifold_dim=2,
+    verbose=True
+)
+```
+
+#### `tagra.analyze()`
+Analyze a TaGra graph.
+
+```python
+metrics = tagra.analyze(
+    graph,
+    target_attribute='label',
+    output_directory='results/',
+    graph_visualization_filename='graph.png'
+)
+```
+
+#### `tagra.visualize()`
+Visualize a graph.
+
+```python
+# Matplotlib visualization
+tagra.visualize(graph, output='graph.png', target_attribute='label')
+
+# Cytoscape visualization (in Jupyter)
+tagra.visualize(graph, method='cytoscape')
+```
+
+### Modular API
+
+For more control, use the modular API directly:
+
+#### Preprocessing Module (`tagra.preprocessing`)
+
+```python
+from tagra.preprocessing import preprocess
+
+df_processed, positions = preprocess(
+    input_dataframe=df,
+    target_columns=['label'],
+    numeric_scaling='standard',
+    categorical_encoding='one-hot',
+    manifold_method='UMAP',
+    manifold_dim=2,
+    verbose=True
+)
+```
+
+#### Construction Module (`tagra.construction`)
+
+```python
+from tagra.construction import build_graph
+
+graph = build_graph(
+    input_dataframe=df,
+    preprocessed_dataframe=df_processed,
+    method='knn',
+    k=5,
+    verbose=True
+)
+```
+
+#### Analysis Module (`tagra.analysis`)
+
+```python
+from tagra.analysis import analyze
+
+metrics = analyze(
+    graph,
+    target_attributes='label',
+    verbose=True
+)
+```
+
+#### Visualization Module (`tagra.visualization`)
+
+```python
+from tagra.visualization import matplotlib_graph_visualization
+
+matplotlib_graph_visualization(
+    graph,
+    target_attribute='label',
+    output_path='graph.png',
+    pos=positions
+)
+```
+
+### Machine Learning Module (`tagra.ml`)
+
+TaGra v0.3.0 introduces powerful ML capabilities that leverage graph structure.
+
+#### Semi-Supervised Learning (Label Propagation)
+
+Propagate labels from labeled to unlabeled nodes using graph connectivity.
+
+```python
+from tagra.ml import LabelPropagator
+
+# Create a propagator
+propagator = LabelPropagator(max_iter=100, alpha=0.8)
+
+# Fit on graph with partial labels
+# Use None or -1 for unlabeled nodes
+labels = ['A', 'B', None, 'A', None, 'B', ...]
+predictions = propagator.fit_predict(graph, labels)
+
+# Or use convenience function
+from tagra.ml import propagate_labels
+predictions = propagate_labels(graph, target_column='label', unlabeled_value=None)
+```
+
+**Use cases:**
+- Learning from partially labeled datasets
+- Reducing labeling costs
+- Exploiting graph structure for better predictions
+
+#### Graph-Aware Data Augmentation
+
+Generate synthetic samples by interpolating between connected nodes, respecting graph structure.
+
+```python
+from tagra.ml import GraphAwareAugmenter
+
+augmenter = GraphAwareAugmenter(n_samples=2, alpha_range=(0.3, 0.7))
+
+# Augment specific class
+df_augmented, labels_augmented = augmenter.augment(
+    graph,
+    X=df[['feature1', 'feature2']],
+    y=df['label'],
+    target_class='minority_class'
+)
+```
+
+**Advantages over SMOTE:**
+- Respects graph connectivity
+- Generates samples between truly similar points
+- Preserves local structure
+
+#### Explainable Anomaly Detection
+
+Detect outliers based on graph structure with interpretable explanations.
+
+```python
+from tagra.ml import GraphAnomalyDetector
+
+detector = GraphAnomalyDetector(
+    method='combined',        # 'structural', 'attribute', or 'combined'
+    contamination=0.1
+)
+
+detector.fit(graph, attribute_columns=['feature1', 'feature2'])
+anomalies = detector.get_anomalies()
+
+# Get explanation for specific node
+explanation = detector.explain(node_id=42)
+print(f"Node {explanation.node_id}: Score = {explanation.anomaly_score:.4f}")
+print("Reasons:", explanation.reasons)
+```
+
+**Features:**
+- Structural anomalies (unusual degree, clustering)
+- Attribute anomalies (different from neighbors)
+- Combined detection
+- Human-readable explanations
+
+#### Graph-Based Imputation
+
+Fill missing values using neighbor information.
+
+```python
+from tagra.ml import GraphImputer
+
+imputer = GraphImputer(
+    strategy='weighted_mean',  # 'mean', 'weighted_mean', 'median', 'mode'
+    n_neighbors=5
+)
+
+df_imputed = imputer.fit_transform(graph, df_with_missing)
+
+# Or use convenience function
+from tagra.ml import impute_with_graph
+df_imputed = impute_with_graph(graph, df_with_missing, strategy='weighted_mean')
+```
+
+**Advantages:**
+- Uses local neighborhood information
+- Better than global statistics
+- Respects graph structure
+
+### Core Types (`tagra.core`)
+
+```python
+from tagra.core import TaGraGraph, GraphMetadata
+
+# TaGraGraph wraps NetworkX graphs with metadata
+graph = TaGraGraph(nx_graph, metadata)
+
+# Access NetworkX functionality
+print(graph.number_of_nodes())
+print(graph.number_of_edges())
+
+# Save and load
+graph.save('graph.pkl')
+loaded = TaGraGraph.load('graph.pkl')
+
+# Get positions for visualization
+positions = graph.get_positions_dict()
+```
+
+### I/O Module (`tagra.io`)
+
+```python
+from tagra.io import save_graph, load_graph
+
+# Save in various formats
+save_graph(graph, 'graph.graphml')  # GraphML
+save_graph(graph, 'graph.pkl')      # Pickle
+save_graph(graph, 'graph.cyjs')     # Cytoscape JSON
+
+# Load graphs
+graph = load_graph('graph.graphml')
+```
+
+## Legacy API (Deprecated)
+
+The old API still works but shows deprecation warnings. It will be removed in v1.0.0.
+
+### 1. Data Preprocessing (Legacy)
 
 ```python
 from tagra import preprocessing
@@ -324,6 +637,159 @@ community_filename = None,
 graph_visualization_filename = None,
 overwrite = False
 ```
+# Machine Learning Examples
+
+TaGra v0.3.0's ML module enables powerful graph-based machine learning workflows.
+
+## Example 1: Semi-Supervised Learning
+
+Learn from a small labeled dataset using graph structure.
+
+```python
+import tagra
+import pandas as pd
+import numpy as np
+
+# Load data
+df = pd.read_csv('partially_labeled_data.csv')
+
+# Create graph
+graph = tagra.from_dataframe(df, target='label', method='knn', k=5)
+
+# Prepare labels (None for unlabeled)
+labels = df['label'].values  # Contains None for unlabeled samples
+
+# Propagate labels
+from tagra.ml import LabelPropagator
+propagator = LabelPropagator(max_iter=100, alpha=0.8, verbose=True)
+predictions = propagator.fit_predict(graph, labels)
+
+# Evaluate on unlabeled data
+unlabeled_mask = df['label'].isna()
+print(f"Predicted {unlabeled_mask.sum()} labels")
+```
+
+## Example 2: Handling Imbalanced Data
+
+Augment minority class using graph structure.
+
+```python
+import tagra
+from tagra.ml import GraphAwareAugmenter
+
+# Create graph
+graph = tagra.from_dataframe(df, target='class', method='knn', k=5)
+
+# Augment minority class
+augmenter = GraphAwareAugmenter(n_samples=3, verbose=True)
+df_aug, labels_aug = augmenter.augment(
+    graph,
+    X=df[['feature1', 'feature2', 'feature3']],
+    y=df['class'],
+    target_class='minority'
+)
+
+print(f"Original samples: {len(df)}")
+print(f"Augmented samples: {len(df_aug)}")
+```
+
+## Example 3: Anomaly Detection
+
+Detect and explain anomalies in your data.
+
+```python
+import tagra
+from tagra.ml import GraphAnomalyDetector
+
+# Create graph
+graph = tagra.from_dataframe(df, target='label', method='knn', k=5)
+
+# Detect anomalies
+detector = GraphAnomalyDetector(
+    method='combined',
+    contamination=0.05,  # Expect 5% anomalies
+    verbose=True
+)
+
+detector.fit(graph, attribute_columns=['feature1', 'feature2'])
+
+# Get top anomalies
+anomalies = detector.get_anomalies(top_k=10)
+
+for anomaly in anomalies:
+    print(f"\nNode {anomaly.node_id}:")
+    print(f"  Score: {anomaly.anomaly_score:.4f}")
+    print(f"  Reasons: {', '.join(anomaly.reasons)}")
+```
+
+## Example 4: Missing Value Imputation
+
+Fill missing values using neighbor information.
+
+```python
+import tagra
+from tagra.ml import GraphImputer
+
+# Create graph from data with missing values
+df_with_missing = pd.read_csv('data_with_nans.csv')
+
+# Build graph using available features
+graph = tagra.from_dataframe(
+    df_with_missing.dropna(),  # Use complete cases for graph
+    method='knn',
+    k=5
+)
+
+# Impute missing values
+imputer = GraphImputer(strategy='weighted_mean', n_neighbors=5, verbose=True)
+df_imputed = imputer.fit_transform(graph, df_with_missing)
+
+print(f"Missing values before: {df_with_missing.isna().sum().sum()}")
+print(f"Missing values after: {df_imputed.isna().sum().sum()}")
+```
+
+## Example 5: Complete ML Workflow
+
+Combine multiple ML features for a complete workflow.
+
+```python
+import tagra
+from tagra.ml import GraphImputer, LabelPropagator, GraphAwareAugmenter
+import pandas as pd
+
+# 1. Load data with missing values and partial labels
+df = pd.read_csv('messy_data.csv')
+
+# 2. Impute missing values
+graph = tagra.from_dataframe(df, method='knn', k=5)
+imputer = GraphImputer(strategy='weighted_mean')
+df_clean = imputer.fit_transform(graph, df)
+
+# 3. Rebuild graph with clean data
+graph = tagra.from_dataframe(df_clean, target='label', method='knn', k=5)
+
+# 4. Propagate labels
+propagator = LabelPropagator(max_iter=100, alpha=0.8)
+df_clean['label_predicted'] = propagator.fit_predict(graph, df_clean['label'])
+
+# 5. Augment minority class
+augmenter = GraphAwareAugmenter(n_samples=2)
+df_balanced, labels_balanced = augmenter.augment(
+    graph,
+    X=df_clean.drop(columns=['label', 'label_predicted']),
+    y=df_clean['label_predicted'],
+    target_class='minority'
+)
+
+# 6. Analyze final graph
+final_graph = tagra.from_dataframe(df_balanced, target='label', method='knn', k=5)
+metrics = tagra.analyze(final_graph, target_attribute='label')
+tagra.visualize(final_graph, output='final_graph.png')
+
+print(f"Final dataset: {len(df_balanced)} samples")
+print(f"Homophily: {metrics['homophily_score']:.4f}")
+```
+
 # Reference
 Davide Torre, Davide Chicco, "TaGra: an open Python package for easily generating graphs from data tables through manifold learning", PeerJ Computer Science 11:e2986, 2025. https://doi.org/10.7717/peerj-cs.2986
 
