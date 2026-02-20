@@ -3,7 +3,7 @@ venv/
 
 # Ignore dist
 dist/
-TaGra.egg-info
+TaGra.egg-info/
 
 # Ignore experiments results
 *results/
