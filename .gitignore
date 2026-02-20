@@ -6,14 +6,13 @@ dist/
 TaGra.egg-info
 
 # Ignore experiments results
-results/
-
+*results/
+examples/
 # Ignore datasets and tests
 dataset/
 tests/
 
-# Ignore future app
-future_applications/
+# Ignore dev workspace (plans, scripts, tests, experiments)
 *.pdf
 */__pycache__/
 __pycache__/
