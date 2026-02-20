@@ -4,6 +4,7 @@ venv/
 # Ignore dist
 dist/
 TaGra.egg-info/
+*.DS_Store
 
 # Ignore experiments results
 *results/
