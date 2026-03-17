@@ -17,3 +17,8 @@ tests/
 *.pdf
 */__pycache__/
 __pycache__/
+
+# Ignore paper notes
+docs/paper/*
+dev/tasks/clustering/bundles
+dev/tasks/clustering/*results*/
