@@ -112,10 +112,14 @@ def register_default_constructors() -> None:
     from .knn import KNNConstructor
     from .distance import DistanceThresholdConstructor
     from .similarity import SimilarityThresholdConstructor
+    from .dbscan import DBSCANGraphConstructor
+    from .gower import GowerDistanceConstructor
 
     ConstructorRegistry.register(KNNConstructor)
     ConstructorRegistry.register(DistanceThresholdConstructor)
     ConstructorRegistry.register(SimilarityThresholdConstructor)
+    ConstructorRegistry.register(DBSCANGraphConstructor)
+    ConstructorRegistry.register(GowerDistanceConstructor)
 
 
 # Register defaults when module is imported

@@ -4,10 +4,11 @@ TaGra Graph Construction Module.
 This module provides extensible graph construction methods for building
 graphs from preprocessed tabular data.
 
-The module supports three built-in construction methods:
+The module supports four built-in construction methods:
 - KNN: Connect each node to its k nearest neighbors
-- Distance: Connect nodes within a distance threshold
+- Distance: Connect nodes within a distance threshold (undirected)
 - Similarity: Connect nodes with cosine similarity above threshold
+- DBSCAN: Directed graph exactly equivalent to DBSCAN clustering
 
 Custom construction methods can be added via the ConstructorRegistry.
 
@@ -50,6 +51,8 @@ from .base import GraphConstructor
 from .knn import KNNConstructor
 from .distance import DistanceThresholdConstructor
 from .similarity import SimilarityThresholdConstructor
+from .dbscan import DBSCANGraphConstructor
+from .gower import GowerDistanceConstructor
 from .registry import ConstructorRegistry
 
 from ..core import TaGraGraph, GraphMetadata, ConstructionMethod
@@ -274,6 +277,8 @@ __all__ = [
     'KNNConstructor',
     'DistanceThresholdConstructor',
     'SimilarityThresholdConstructor',
+    'DBSCANGraphConstructor',
+    'GowerDistanceConstructor',
     'ConstructorRegistry',
     'build_graph'
 ]
