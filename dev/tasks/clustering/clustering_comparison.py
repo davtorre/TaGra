@@ -31,6 +31,8 @@ from sklearn.preprocessing import StandardScaler
 from tagra.construction.knn import KNNConstructor
 from tagra.construction.distance import DistanceThresholdConstructor
 from tagra.construction.similarity import SimilarityThresholdConstructor
+from tagra.construction.dbscan import DBSCANGraphConstructor
+from tagra.construction.gower import GowerDistanceConstructor
 
 # DBCV: optional dependency
 try:
@@ -55,6 +57,7 @@ def preprocess(df):
     """
     Preprocessing placeholder.
 
+    Returns scaled data (StandardScaler) suitable for Euclidean-based methods.
     """
     numeric_df = df.select_dtypes(include=[np.number])
     if numeric_df.empty:
@@ -70,6 +73,34 @@ def preprocess(df):
 
     return pd.DataFrame(scaled, columns=numeric_df.columns)
 
+
+def extract_raw_numeric(df):
+    """Return raw (unscaled) numeric columns as a float array and column list."""
+    numeric_df = df.select_dtypes(include=[np.number])
+    return numeric_df.values.astype(float), list(numeric_df.columns)
+
+
+def detect_feature_types(X_raw, columns):
+    """
+    Auto-detect feature types from raw data.
+
+    Heuristic:
+    - Binary  : exactly 2 unique non-NaN values
+    - Ordinal : 3–6 unique non-NaN values
+    - Continuous : 7+ unique non-NaN values
+    """
+    types = []
+    for k in range(X_raw.shape[1]):
+        col = X_raw[:, k]
+        n_unique = len(np.unique(col[~np.isnan(col)]))
+        if n_unique <= 2:
+            types.append('binary')
+        elif n_unique <= 6:
+            types.append('ordinal')
+        else:
+            types.append('continuous')
+    return types
+
 # ---------------------------------------------------------------------------
 # DBSCAN baseline
 # ---------------------------------------------------------------------------
@@ -78,6 +109,42 @@ def run_dbscan(X, eps, min_samples):
     """Run DBSCAN and return cluster labels (-1 = noise)."""
     labels = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(X)
     return labels
+
+# ---------------------------------------------------------------------------
+# DBSCAN constructor (TaGra-native, should be equivalent to sklearn DBSCAN)
+# ---------------------------------------------------------------------------
+
+def run_dbscan_constructor(X, eps, min_samples):
+    """
+    Run TaGra's DBSCANGraphConstructor and extract cluster labels.
+
+    Builds a directed graph where core points emit edges to all neighbors
+    within eps. Clusters = weakly connected components; isolated nodes = noise.
+    Should produce labels identical to sklearn DBSCAN (V-measure = 1).
+    """
+    n_samples = X.shape[0]
+    G = nx.DiGraph()
+    for i in range(n_samples):
+        G.add_node(i)
+
+    constructor = DBSCANGraphConstructor(eps=eps, min_samples=min_samples, verbose=False)
+    constructor.construct(G, X)
+
+    labels = np.full(n_samples, -1)
+    cluster_id = 0
+    for component in nx.weakly_connected_components(G):
+        if len(component) == 1:
+            node = next(iter(component))
+            if G.in_degree(node) == 0 and G.out_degree(node) == 0:
+                continue  # isolated node -> noise (-1)
+        for node in component:
+            labels[node] = cluster_id
+        cluster_id += 1
+
+    n_clusters = cluster_id
+    n_noise = int(np.sum(labels == -1))
+    return labels, n_clusters, n_noise
+
 
 # ---------------------------------------------------------------------------
 # Graph-based clustering
@@ -160,6 +227,70 @@ def build_graph_and_cluster(X, method, params, degree_filter):
 
 
 # ---------------------------------------------------------------------------
+# Gower graph clustering
+# ---------------------------------------------------------------------------
+
+def build_gower_and_cluster(X_raw, feature_types, params, degree_filter):
+    """
+    Build a Gower-distance graph and extract clusters via degree filtering.
+
+    Gower distance is computed on raw (unscaled) data with auto-detected or
+    explicitly provided feature types, so binary/ordinal semantics are preserved.
+
+    Parameters
+    ----------
+    X_raw : np.ndarray
+        Raw (unscaled) feature matrix.
+    feature_types : list of str
+        Per-column type labels ('continuous', 'binary', 'ordinal').
+        Overridden by 'feature_types' key in params if present.
+    params : dict
+        Must contain 'distance_threshold'; optionally 'continuous_metric'
+        and 'feature_types'.
+    degree_filter : int
+
+    Returns
+    -------
+    labels : np.ndarray
+    info : dict
+    """
+    n_samples = X_raw.shape[0]
+
+    G = nx.Graph()
+    for i in range(n_samples):
+        G.add_node(i)
+
+    constructor = GowerDistanceConstructor(
+        distance_threshold=params["distance_threshold"],
+        feature_types=params.get("feature_types", feature_types),
+        continuous_metric=params.get("continuous_metric", "range"),
+        verbose=False,
+    )
+    constructor.construct(G, X_raw)
+    n_edges = G.number_of_edges()
+
+    degrees = dict(G.degree())
+    low_degree_nodes = [n for n, d in degrees.items() if d < degree_filter]
+    G_filtered = G.copy()
+    G_filtered.remove_nodes_from(low_degree_nodes)
+
+    labels = np.full(n_samples, -1)
+    cluster_id = 0
+    for component in nx.connected_components(G_filtered):
+        for node in component:
+            labels[node] = cluster_id
+        cluster_id += 1
+
+    info = {
+        "n_edges": n_edges,
+        "n_clusters": cluster_id,
+        "n_noise": int(np.sum(labels == -1)),
+        "n_core_nodes": n_samples - len(low_degree_nodes),
+    }
+    return labels, info
+
+
+# ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
 
@@ -222,12 +353,12 @@ def generate_report(results, dbscan_config, degree_filter, dataset_info, output_
         f.write("-" * 40 + "\n")
         f.write(f"  DBSCAN eps:         {dbscan_config['eps']}\n")
         f.write(f"  DBSCAN min_samples: {dbscan_config['min_samples']}\n")
-        f.write(f"  Degree filter:      {degree_filter} (= min_samples - 1)\n\n")
+        f.write(f"  Default degree filter: {degree_filter} (= min_samples - 1, overridable per method)\n\n")
 
         f.write("Results\n")
         f.write("-" * 80 + "\n")
         header = (
-            f"{'Method':<42} {'Clusters':>8} {'Noise':>7} "
+            f"{'Method':<42} {'Clusters':>8} {'Noise%':>7} "
             f"{'DBCV':>8} {'Silhouet':>8} {'V-meas':>8}"
         )
         f.write(header + "\n")
@@ -237,8 +368,9 @@ def generate_report(results, dbscan_config, degree_filter, dataset_info, output_
             dbcv_s = f"{r['dbcv']:.4f}" if r["dbcv"] is not None else "N/A"
             sil_s = f"{r['silhouette']:.4f}" if r["silhouette"] is not None else "N/A"
             vm_s = f"{r['v_measure']:.4f}" if r["v_measure"] is not None else "-"
+            noise_pct = f"{100 * r['n_noise'] / dataset_info['n_samples']:.1f}%"
             line = (
-                f"{r['name']:<42} {r['n_clusters']:>8} {r['n_noise']:>7} "
+                f"{r['name']:<42} {r['n_clusters']:>8} {noise_pct:>7} "
                 f"{dbcv_s:>8} {sil_s:>8} {vm_s:>8}"
             )
             f.write(line + "\n")
@@ -386,6 +518,12 @@ def main():
     X = df_prep.values
     print(f"  Numeric columns: {list(df_prep.columns)}")
 
+    # Raw data and feature types for Gower (must not be StandardScaled)
+    X_raw, raw_columns = extract_raw_numeric(df)
+    feature_types = detect_feature_types(X_raw, raw_columns)
+    type_counts = {t: feature_types.count(t) for t in set(feature_types)}
+    print(f"  Feature types (Gower): {type_counts}")
+
     results = []
 
     # ---- DBSCAN baseline ----
@@ -405,42 +543,73 @@ def main():
         "labels": dbscan_labels,
     })
 
-    # ---- TaGra graph-based clustering ----
-    print(f"\nDegree filter for all graph methods: {degree_filter} (= min_samples - 1)")
+    # ---- TaGra DBSCANGraphConstructor (should match sklearn DBSCAN exactly) ----
+    print(f"\nDBSCANGraphConstructor (eps={eps}, min_samples={min_samples})")
+    dgc_labels, dgc_n_cl, dgc_n_ns = run_dbscan_constructor(X, eps, min_samples)
+    print(f"  Clusters: {dgc_n_cl}, Noise: {dgc_n_ns}")
 
-    # Ensure distance thresholds include eps for the validation comparison
-    if "distance" in graph_methods:
-        dt_list = graph_methods["distance"]["distance_threshold"]
-        if eps not in dt_list:
-            print(f"\n  NOTE: Adding eps={eps} to distance thresholds for validation")
-            dt_list.insert(0, eps)
+    results.append({
+        "name": f"DBSCANConstructor (eps={eps}, ms={min_samples})",
+        "n_clusters": dgc_n_cl,
+        "n_noise": dgc_n_ns,
+        "dbcv": compute_dbcv(X, dgc_labels),
+        "silhouette": compute_silhouette(X, dgc_labels),
+        "v_measure": compute_v_measure(dbscan_labels, dgc_labels),
+        "labels": dgc_labels,
+    })
+
+    # ---- TaGra graph-based clustering ----
+    # Each entry in graph_methods[method] is a dict with method params and an
+    # optional "degree_filter" key. Falls back to the global degree_filter
+    # (min_samples - 1) when not specified.
+    print(f"\nDefault degree filter: {degree_filter} (= min_samples - 1)")
+
+    # Normalise config: support both old scalar/list format and new list-of-dicts
+    def normalise_entries(method, raw):
+        """Return list of (params_dict, df_value) from a raw config value."""
+        entries = []
+        if isinstance(raw, list) and all(isinstance(e, dict) for e in raw):
+            # New format: list of dicts with optional degree_filter per entry
+            for e in raw:
+                e = dict(e)
+                df_val = e.pop("degree_filter", degree_filter)
+                entries.append((e, df_val))
+        elif isinstance(raw, dict):
+            # Old format: {"distance_threshold": [...]} or {"k": [...]} etc.
+            if method == "distance":
+                for dt in raw.get("distance_threshold", []):
+                    entries.append(({"distance_threshold": dt}, degree_filter))
+            elif method == "knn":
+                for k in raw.get("k", []):
+                    entries.append(({"k": k}, degree_filter))
+            elif method == "similarity":
+                for st in raw.get("similarity_threshold", []):
+                    entries.append(({"similarity_threshold": st}, degree_filter))
+        return entries
 
     method_configs = []
+    for method in ("distance", "knn", "similarity", "gower"):
+        if method in graph_methods:
+            for params, df_val in normalise_entries(method, graph_methods[method]):
+                method_configs.append((method, params, df_val))
 
-    if "distance" in graph_methods:
-        for dt in graph_methods["distance"]["distance_threshold"]:
-            method_configs.append(("distance", {"distance_threshold": dt}))
-
-    if "knn" in graph_methods:
-        for k in graph_methods["knn"]["k"]:
-            method_configs.append(("knn", {"k": k}))
-
-    if "similarity" in graph_methods:
-        for st in graph_methods["similarity"]["similarity_threshold"]:
-            method_configs.append(("similarity", {"similarity_threshold": st}))
-
-    for method, params in method_configs:
-        # Build a readable name
+    for method, params, df_val in method_configs:
         if method == "distance":
             p_str = f"t={params['distance_threshold']}"
         elif method == "knn":
             p_str = f"k={params['k']}"
-        else:
+        elif method == "similarity":
             p_str = f"t={params['similarity_threshold']}"
-        name = f"{method} ({p_str}, df={degree_filter})"
+        else:  # gower
+            metric = params.get('continuous_metric', 'range')
+            p_str = f"t={params['distance_threshold']},{metric}"
+        name = f"{method} ({p_str}, df={df_val})"
 
         print(f"\n  {name}")
-        labels, info = build_graph_and_cluster(X, method, params, degree_filter)
+        if method == "gower":
+            labels, info = build_gower_and_cluster(X_raw, feature_types, params, df_val)
+        else:
+            labels, info = build_graph_and_cluster(X, method, params, df_val)
         print(f"    Edges: {info['n_edges']}, Core nodes: {info['n_core_nodes']}, "
               f"Clusters: {info['n_clusters']}, Noise: {info['n_noise']}")
 
