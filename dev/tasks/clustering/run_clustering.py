@@ -110,31 +110,43 @@ def dbscan_constructor_labels(X, eps, min_samples):
 
 # ── Record / display ──────────────────────────────────────────────────────────
 
+def min_cluster_pct(lbl):
+    """Smallest cluster as % of non-noise points. None if fewer than 2 clusters."""
+    ids = [c for c in set(lbl) if c != -1]
+    if len(ids) < 2:
+        return None
+    n_non_noise = np.sum(lbl != -1)
+    if n_non_noise == 0:
+        return None
+    return float(min((lbl == c).sum() for c in ids) / n_non_noise * 100)
+
 def record(name, X, lbl, true_lbl, ref_lbl=None):
     n_cl = len(set(lbl) - {-1})
     n_ns = int(np.sum(lbl == -1))
     return {
-        "name":       name,
-        "n_clusters": n_cl,
-        "noise_pct":  100 * n_ns / len(lbl),
-        "dbcv":       dbcv(X, lbl),
-        "sil":        sil(X, lbl),
-        "vm_true":    vm(true_lbl, lbl),
-        "vm_ref":     vm(ref_lbl, lbl) if ref_lbl is not None else None,
-        "labels":     lbl,
+        "name":          name,
+        "n_clusters":    n_cl,
+        "noise_pct":     100 * n_ns / len(lbl),
+        "min_cls_pct":   min_cluster_pct(lbl),
+        "dbcv":          dbcv(X, lbl),
+        "sil":           sil(X, lbl),
+        "vm_true":       vm(true_lbl, lbl),
+        "vm_ref":        vm(ref_lbl, lbl) if ref_lbl is not None else None,
+        "labels":        lbl,
     }
 
 def fmt(v, w=7):
     return f"{v:{w}.4f}" if v is not None else " " * (w - 3) + "N/A"
 
-HDR = (f"{'Method':<52} {'Cl':>4} {'Noise%':>7} "
+HDR = (f"{'Method':<52} {'Cl':>4} {'Noise%':>7} {'MinCls%':>8} "
        f"{'DBCV':>8} {'Sil':>8} {'Vm(true)':>9} {'Vm(ref)':>8}")
-SEP = "-" * 105
+SEP = "-" * 114
 
 def print_row(r, show_vm_ref=False):
-    vr = fmt(r["vm_ref"]) if show_vm_ref and r.get("vm_ref") is not None else "       -"
+    vr  = fmt(r["vm_ref"]) if show_vm_ref and r.get("vm_ref") is not None else "       -"
+    mc  = f"{r['min_cls_pct']:>6.1f}%" if r.get("min_cls_pct") is not None else "     N/A"
     print(f"  {r['name']:<52} {r['n_clusters']:>4} {r['noise_pct']:>6.1f}%"
-          f" {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
+          f" {mc:>8} {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
           f" {fmt(r['vm_true']):>9} {vr:>8}")
 
 def print_section(title, rows, show_vm_ref=False):
@@ -155,9 +167,10 @@ def top3_summary(valid, fh=None):
         lines.append(f"\n  ── {label} ──")
         for r in sorted(valid, key=key_fn, reverse=rev)[:3]:
             vr = fmt(r["vm_ref"]) if r.get("vm_ref") is not None else "       -"
+            mc = f"{r['min_cls_pct']:>6.1f}%" if r.get("min_cls_pct") is not None else "     N/A"
             lines.append(
                 f"  {r['name']:<52} {r['n_clusters']:>4} {r['noise_pct']:>6.1f}%"
-                f" {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
+                f" {mc:>8} {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
                 f" {fmt(r['vm_true']):>9} {vr:>8}"
             )
     for line in lines:
@@ -237,7 +250,7 @@ def run_curated(cfg, X, X_raw, gower_ftypes, true_labels, ref_lbl_A, n):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main(bundle_path, meta_path, cfg):
+def main(bundle_path, meta_path, cfg, show_top3=False):
     # ── Load bundle ───────────────────────────────────────────────────────
     bundle      = np.load(bundle_path)
     X           = bundle["X"]
@@ -428,26 +441,58 @@ def main(bundle_path, meta_path, cfg):
     curated_title = (f"CURATED COMPARISON\n"
                      f"  Vm(ref) = Vm vs first DBSCAN ref ({ref_A_desc})")
     print_section(curated_title, curated_rows, show_vm_ref=True)
+    seen_names = {r["name"] for r in all_results}
+    for r in curated_rows:
+        if r["name"] not in seen_names:
+            all_results.append(r)
+            seen_names.add(r["name"])
 
-    # ── Summaries ──────────────────────────────────────────────────────────
-    valid     = [r for r in all_results if r["n_clusters"] >= 2]
+    # ── Summaries (config-driven) ─────────────────────────────────────────
+    valid = [r for r in all_results if r["n_clusters"] >= 2]
+
+    def _sort_key(fields):
+        """Build a sort key from a field name or list of field names.
+        First field is always descending (negated), remaining ascending.
+        None values are sorted last by substituting -inf for descending fields."""
+        if isinstance(fields, str):
+            fields = [fields]
+        def key(r):
+            vals = []
+            for i, f in enumerate(fields):
+                v = r.get(f)
+                if i == 0:   # descending: negate, put None last
+                    vals.append(float("inf") if v is None else -v)
+                else:        # ascending: put None last
+                    vals.append(float("inf") if v is None else v)
+            return vals
+        return key
+
+    summary_defs = cfg.get("summaries", [])
+    computed_summaries = []   # kept for the report writer
+
+    for s in summary_defs:
+        name         = s.get("name", "")
+        max_noise    = s.get("max_noise_pct", 100.0)
+        sort_fields  = s.get("sort", "vm_true")
+        if isinstance(sort_fields, str):
+            sort_label = f"{sort_fields} ↓"
+        else:
+            sort_label = " ↓, ".join(sort_fields[:1]) + " ↓ then " + ", ".join(sort_fields[1:]) + " ↑"
+
+        pool  = [r for r in valid if r["noise_pct"] <= max_noise]
+        rows  = sorted(pool, key=_sort_key(sort_fields))
+        title = (f"SUMMARY {name} – ≥2 clusters, noise ≤ {max_noise}%, "
+                 f"sorted by {sort_label}")
+
+        print(f"\n{'='*78}\n{title}")
+        print(HDR); print(SEP)
+        for r in rows:
+            print_row(r, show_vm_ref=r.get("vm_ref") is not None)
+
+        computed_summaries.append((title, rows))
+
+    # valid_low still needed for top-3 (uses 60% as the display baseline)
     valid_low = [r for r in valid if r["noise_pct"] <= 60]
-
-    sum_a_title = "SUMMARY A – ≥2 clusters, noise ≤ 60%, sorted by Vm(true) ↓"
-    sum_a_rows  = sorted(valid_low, key=lambda r: r["vm_true"], reverse=True)
-    sum_b_title = "SUMMARY B – ≥2 clusters, noise ≤ 60%, sorted by DBCV ↓ then Noise% ↑"
-    sum_b_rows  = sorted([r for r in valid_low if r["dbcv"] is not None],
-                         key=lambda r: (-r["dbcv"], r["noise_pct"]))
-
-    print(f"\n{'='*78}\n{sum_a_title}")
-    print(HDR); print(SEP)
-    for r in sum_a_rows:
-        print_row(r, show_vm_ref=r.get("vm_ref") is not None)
-
-    print(f"\n{'='*78}\n{sum_b_title}")
-    print(HDR); print(SEP)
-    for r in sum_b_rows:
-        print_row(r, show_vm_ref=r.get("vm_ref") is not None)
 
     # ── Quality-filtered ───────────────────────────────────────────────────
     qc_title = (
@@ -474,9 +519,10 @@ def main(bundle_path, meta_path, cfg):
         fh.write(HDR + "\n" + SEP + "\n")
         for r in rows:
             vr = fmt(r["vm_ref"]) if show_vm_ref and r.get("vm_ref") is not None else "       -"
+            mc = f"{r['min_cls_pct']:>6.1f}%" if r.get("min_cls_pct") is not None else "     N/A"
             fh.write(
                 f"  {r['name']:<52} {r['n_clusters']:>4} {r['noise_pct']:>6.1f}%"
-                f" {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
+                f" {mc:>8} {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
                 f" {fmt(r['vm_true']):>9} {vr:>8}\n"
             )
         fh.write("\n")
@@ -487,8 +533,8 @@ def main(bundle_path, meta_path, cfg):
         f.write(f"n={n}  features={X.shape[1]}  Gower types: {gower_ftypes}\n\n")
 
         _write_section(f, "ALL RESULTS", all_results, show_vm_ref=True)
-        _write_section(f, sum_a_title, sum_a_rows,    show_vm_ref=True)
-        _write_section(f, sum_b_title, sum_b_rows,    show_vm_ref=True)
+        for title, rows in computed_summaries:
+            _write_section(f, title, rows, show_vm_ref=True)
         _write_section(f, curated_title, curated_rows, show_vm_ref=True)
 
         f.write("=" * 78 + "\n")
@@ -497,15 +543,20 @@ def main(bundle_path, meta_path, cfg):
         if qc_rows:
             for r in sorted(qc_rows, key=lambda r: r["vm_true"], reverse=True):
                 vr = fmt(r["vm_ref"]) if r.get("vm_ref") is not None else "       -"
+                mc = f"{r['min_cls_pct']:>6.1f}%" if r.get("min_cls_pct") is not None else "     N/A"
                 f.write(
                     f"  {r['name']:<52} {r['n_clusters']:>4} {r['noise_pct']:>6.1f}%"
-                    f" {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
+                    f" {mc:>8} {fmt(r['dbcv']):>8} {fmt(r['sil']):>8}"
                     f" {fmt(r['vm_true']):>9} {vr:>8}\n"
                 )
         else:
             f.write("  (no results pass all criteria)\n")
 
-        top3_summary(valid_low, fh=f)
+        if show_top3:
+            top3_summary(valid_low, fh=f)
+
+    if show_top3:
+        top3_summary(valid_low)
 
     print(f"\nReport saved: {report_path}")
     print(f"Total configurations tested: {len(all_results)}")
@@ -520,6 +571,8 @@ if __name__ == "__main__":
                         help="Path to meta JSON (default: inferred from --bundle path)")
     parser.add_argument("--config", required=True,
                         help="Path to dataset JSON config file")
+    parser.add_argument("--top", action="store_true",
+                        help="Print top-3 results per metric at the end")
     args = parser.parse_args()
 
     meta_path = args.meta or args.bundle.replace("_bundle.npz", "_meta.json")
@@ -527,4 +580,4 @@ if __name__ == "__main__":
     with open(args.config) as _f:
         _cfg = json.load(_f)
 
-    main(args.bundle, meta_path, _cfg)
+    main(args.bundle, meta_path, _cfg, show_top3=args.top)
