@@ -1,9 +1,42 @@
 import datetime
+import functools
+import time
 import networkx as nx
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import pdb
+
+def measure_emissions(func):
+    """Decorator that tracks energy consumption and CO2 emissions of a function using CodeCarbon."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            from codecarbon import EmissionsTracker
+        except ImportError:
+            import subprocess
+            import sys
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "codecarbon"])
+            from codecarbon import EmissionsTracker
+
+        tracker = EmissionsTracker(log_level="error", save_to_file=False)
+        tracker.start()
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            end_time = time.time()
+            emissions = tracker.stop() * 1000
+            energy_wh = tracker._total_energy.kWh * 1000
+            execution_time = end_time - start_time
+            print(f"\n~ : ~ consumption measured through CodeCarbon ~ : ~")
+            print(f"{func.__name__} energy: {energy_wh:.20f} Wh")
+            print(f"{func.__name__} emissions: {emissions:.20f} CO\u2082eq grams")
+            print(f"{func.__name__} execution time: {execution_time:.20f} seconds")
+            print(f"~ : ~ : ~ : ~ : ~ : ~ : ~")
+        return result
+    return wrapper
+
 
 plt.rcParams.update({
     'font.size': 22,  # General font size
