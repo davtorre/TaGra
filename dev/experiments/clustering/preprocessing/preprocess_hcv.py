@@ -3,7 +3,7 @@
 HCV Hepatitis C – preprocessing pipeline.
 
 Loads raw data, applies column-typed preprocessing, and saves a bundle to
-bundles/ that can be consumed by run_clustering.py.
+bundles/ that can be consumed by run.py.
 
 Output:
     bundles/hcv_bundle.npz   – arrays X, X_raw, true_labels
