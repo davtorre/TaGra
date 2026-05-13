@@ -15,6 +15,10 @@ tests/
 dev/experiments/clustering/results/
 dev/experiments/clustering/*.html
 
+# Experiment datasets (raw data + preprocessed bundles, not for distribution)
+dev/experiments/clustering/preprocessing/data/
+dev/experiments/clustering/preprocessing/bundles/
+
 # Ignore dev workspace (plans, scripts, tests, experiments)
 *.pdf
 */__pycache__/
