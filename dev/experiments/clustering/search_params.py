@@ -212,7 +212,7 @@ def estimate_threshold_gower(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Graph utilities  (mirrors run_clustering.py)
+# Graph utilities  (mirrors run.py)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _make_graph(n: int) -> nx.Graph:
@@ -464,7 +464,7 @@ _METRICS = [
 
 
 def _result_name(r: dict) -> str:
-    """Human-readable label for a result row (matches run_clustering.py naming)."""
+    """Human-readable label for a result row (matches run.py naming)."""
     m = r["method"]
     if m == "dbscan":
         return f"DBSCAN (eps={r['eps']}, ms={r['ms']})"
