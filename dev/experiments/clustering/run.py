@@ -286,7 +286,7 @@ def main(bundle_path, meta_path, cfg, show_top3=False, skip_codecarbon=False):
     feat_names   = meta["feat_names"]
 
     output_dir = os.path.join(
-        os.path.dirname(__file__), f"clustering_results_{dataset_name.lower()}"
+        os.path.dirname(__file__), "results", "reports"
     )
     os.makedirs(output_dir, exist_ok=True)
 
