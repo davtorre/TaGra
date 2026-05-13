@@ -72,7 +72,7 @@ def parse_row(line: str):
     """
     Parse a single data row from the fixed-width report table.
 
-    Layout (from run_clustering.py):
+    Layout (from run.py):
       2 spaces | name (52 chars) | n_clusters (4) | noise_pct (6.1f)% |
       min_cls_pct (8) | dbcv (8) | sil (8) | vm_true (9) | vm_ref (8)
 
@@ -161,12 +161,12 @@ def main():
     parser = argparse.ArgumentParser(description="Parse grid-search reports into CSV")
     parser.add_argument(
         "--results",
-        default=os.path.join(os.path.dirname(__file__), "grid_search_results"),
+        default=os.path.join(os.path.dirname(__file__), "results", "reports"),
         help="Root directory containing clustering_results_*/ subdirectories",
     )
     parser.add_argument(
         "--out",
-        default=os.path.join(os.path.dirname(__file__), "grid_search_results", "all_results.csv"),
+        default=os.path.join(os.path.dirname(__file__), "results", "all_results.csv"),
         help="Output CSV path",
     )
     args = parser.parse_args()
