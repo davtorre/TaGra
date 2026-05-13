@@ -26,7 +26,7 @@ from bokeh.palettes import Category20
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_FILE = os.path.join(SCRIPT_DIR, "clustering_radar_report.html")
+OUTPUT_FILE = os.path.join(SCRIPT_DIR, "results", "clustering_radar_report.html")
 
 AXES_LABELS = ["DBCV", "Silhouette", "Vm(true)", "Coverage\n(1−noise%)", "Balance\n(min_cls%)"]
 N_AXES      = len(AXES_LABELS)
@@ -52,7 +52,7 @@ def _to_float(s: str):
 
 def _parse_data_row(line: str):
     """
-    Parse one fixed-width data row produced by run_clustering.py.
+    Parse one fixed-width data row produced by run.py.
 
     Format (from the source):
       "  {name:<52} {n_clusters:>4} {noise_pct:>6.1f}% {mc:>8} {dbcv:>8} {sil:>8} {vm_true:>9} {vm_ref:>8}"
@@ -411,19 +411,15 @@ def main():
     report_title  = "Clustering Radar Report – Quality Filtered" if args.quality \
                     else "Clustering Radar Report"
 
-    report_dirs = sorted(glob.glob(os.path.join(SCRIPT_DIR, "clustering_results_*")))
-    if not report_dirs:
-        print("No clustering_results_* directories found.")
+    reports_dir = os.path.join(SCRIPT_DIR, "results", "reports")
+    if not os.path.isdir(reports_dir):
+        print(f"No results/reports/ directory found at {reports_dir}")
         return
 
     tabs = []
-    for rdir in report_dirs:
-        reports = glob.glob(os.path.join(rdir, "*_report.txt"))
-        if not reports:
-            continue
-
-        report_path  = reports[0]
-        dataset_name = os.path.basename(rdir).replace("clustering_results_", "").upper()
+    for report_path in sorted(glob.glob(os.path.join(reports_dir, "*_report.txt"))):
+        basename  = os.path.basename(report_path)
+        dataset_name = basename.replace("_report.txt", "").upper()
 
         sections = parse_report(report_path)
 
