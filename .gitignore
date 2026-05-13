@@ -6,12 +6,14 @@ dist/
 TaGra.egg-info/
 *.DS_Store
 
-# Ignore experiments results
-*results/
-examples/
 # Ignore datasets and tests
 dataset/
+examples/
 tests/
+
+# Paper experiment outputs (regenerable)
+dev/experiments/clustering/results/
+dev/experiments/clustering/*.html
 
 # Ignore dev workspace (plans, scripts, tests, experiments)
 *.pdf
@@ -20,5 +22,3 @@ __pycache__/
 
 # Ignore paper notes
 docs/paper/*
-dev/tasks/clustering/bundles
-dev/tasks/clustering/*results*/

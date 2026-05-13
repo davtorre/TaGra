@@ -1,0 +1,46 @@
+{
+  "exhaustive_grid": true,
+  "max_clusters": 20,
+
+  "dbscan_refs": [],
+  "hdbscan_mcs": [2, 3, 5, 7, 10, 15, 20, 30, 50],
+
+  "dbscan_sweep": {
+    "eps_grid":   [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5,
+                    2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+    "ms_grid":    [3, 5, 7, 10, 15, 20]
+  },
+  "gower_grid": {
+    "metrics":    ["range", "quadratic", "gaussian", "laplacian"],
+    "thresholds": [0.03, 0.05, 0.07, 0.08, 0.09, 0.10, 0.12, 0.14, 0.15,
+                   0.17, 0.20, 0.22, 0.25, 0.28, 0.30, 0.35, 0.40],
+    "df_range":   [1, 20]
+  },
+  "sim_grid": {
+    "thresholds": [0.50, 0.52, 0.54, 0.56, 0.58, 0.60, 0.62, 0.64, 0.66,
+                   0.68, 0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84,
+                   0.86, 0.88, 0.90, 0.92, 0.94, 0.95],
+    "df_range":   [1, 20]
+  },
+  "knn_grid": {
+    "k_range":    [3, 35],
+    "df_range":   [1, 20]
+  },
+  "dist_grid": {
+    "thresholds": [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0,
+                    2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+    "df_range":   [1, 20]
+  },
+
+  "summaries": [
+    {"name": "A", "max_noise_pct": 60.0, "sort": "vm_true"},
+    {"name": "B", "max_noise_pct": 60.0, "sort": ["dbcv", "noise_pct"]}
+  ],
+
+  "quality_criteria": {
+    "min_dbcv":              0.2,
+    "max_noise_pct":        30.0,
+    "min_cluster_size_pct": 5.0,
+    "min_n_clusters":        2
+  }
+}

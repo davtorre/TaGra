@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import pdb
 
+
 def measure_emissions(func):
     """Decorator that tracks energy consumption and CO2 emissions of a function using CodeCarbon."""
     @functools.wraps(func)
@@ -31,11 +32,38 @@ def measure_emissions(func):
             execution_time = end_time - start_time
             print(f"\n~ : ~ consumption measured through CodeCarbon ~ : ~")
             print(f"{func.__name__} energy: {energy_wh:.20f} Wh")
-            print(f"{func.__name__} emissions: {emissions:.20f} CO\u2082eq grams")
+            print(f"{func.__name__} emissions: {emissions:.20f} CO₂eq grams")
             print(f"{func.__name__} execution time: {execution_time:.20f} seconds")
             print(f"~ : ~ : ~ : ~ : ~ : ~ : ~")
         return result
     return wrapper
+
+
+def track_energy(func, *args, skip=False, **kwargs):
+    """Run func(*args, **kwargs) with CodeCarbon tracking. Returns (result, energy_wh, emissions_grams).
+
+    Pass skip=True (e.g. via --skip-codecarbon CLI flag) to bypass tracking entirely.
+    In that case returns (result, None, None) without touching CodeCarbon.
+    """
+    if skip:
+        return func(*args, **kwargs), None, None
+
+    try:
+        from codecarbon import EmissionsTracker
+    except ImportError:
+        import subprocess
+        import sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "codecarbon"])
+        from codecarbon import EmissionsTracker
+
+    tracker = EmissionsTracker(log_level="error", save_to_file=False)
+    tracker.start()
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        emissions_grams = tracker.stop() * 1000
+        energy_wh = tracker._total_energy.kWh * 1000
+    return result, energy_wh, emissions_grams
 
 
 plt.rcParams.update({
@@ -188,7 +216,7 @@ def plot_community_composition(G, attribute_name, communities, outpath, verbose,
             community_compositions[comm_id] = {label: 0 for label in unique_labels}
             for label, count in zip(unique_labels, counts):
                 community_compositions[comm_id][label] = count
-    
+
     if len(community_compositions) == 0:
         print(f"{datetime.datetime.now()}: No communities with more than 1 node found")
         return 0
@@ -218,7 +246,7 @@ def plot_community_composition(G, attribute_name, communities, outpath, verbose,
         fig.tight_layout()
         fig.savefig(outpath, dpi = 300)
         if verbose: print(f"{datetime.datetime.now()}: Community composition saved in {outpath}")
-    
+
     return 1
 def matplotlib_graph_visualization(G, attribute, outpath, verbose, palette = 'seismic', pos = None):
     NONE_STR = 'None'

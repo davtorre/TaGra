@@ -1,0 +1,64 @@
+{
+  "exhaustive_grid": true,
+
+  "dbscan_refs": [
+    {"eps": 0.5, "ms": 10},
+    {"eps": 1.0, "ms": 10}
+  ],
+  "hdbscan_mcs": [2, 3, 5, 7, 10, 15, 20, 30, 50],
+
+  "dbscan_sweep": {
+    "eps_grid": [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0],
+    "ms_grid":  [3, 5, 7, 10, 15, 20]
+  },
+  "gower_grid": {
+    "metrics":    ["range", "quadratic", "gaussian", "laplacian"],
+    "thresholds": [0.03, 0.05, 0.07, 0.08, 0.09, 0.10, 0.12, 0.14, 0.15,
+                   0.17, 0.20, 0.22, 0.25, 0.28, 0.30, 0.35, 0.40],
+    "df_range":   [1, 12]
+  },
+  "sim_grid": {
+    "thresholds": [0.50, 0.52, 0.54, 0.56, 0.58, 0.60, 0.62, 0.64, 0.66,
+                   0.68, 0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84,
+                   0.86, 0.88, 0.90, 0.92, 0.94, 0.95],
+    "df_range":   [1, 15]
+  },
+  "knn_grid": {
+    "k_range":  [3, 25],
+    "df_range": [1, 15]
+  },
+  "dist_grid": {
+    "thresholds": [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5],
+    "df_range":   [1, 15]
+  },
+
+  "summaries": [
+    {"name": "A", "max_noise_pct": 60.0, "sort": "vm_true"},
+    {"name": "B", "max_noise_pct": 60.0, "sort": ["dbcv", "noise_pct"]}
+  ],
+
+  "quality_criteria": {
+    "min_dbcv":              0.2,
+    "max_noise_pct":        30.0,
+    "min_cluster_size_pct": 5.0,
+    "min_n_clusters":        2
+  },
+
+
+  "curated_configs": [
+    {"method": "dbscan",        "eps": 0.5,  "ms": 10},
+    {"method": "dbscan",        "eps": 1.0,  "ms": 10},
+    {"method": "dbscan_constr", "eps": 0.5,  "ms": 10},
+    {"method": "hdbscan",       "mcs": 10},
+    {"method": "hdbscan",       "mcs": 15},
+    {"method": "gower",  "metric": "range",    "t": 0.08, "df": 3},
+    {"method": "gower",  "metric": "gaussian", "t": 0.15, "df": 2},
+    {"method": "gower",  "metric": "laplacian","t": 0.10, "df": 3},
+    {"method": "dist",   "t": 0.5,  "df": 4},
+    {"method": "dist",   "t": 0.8,  "df": 4},
+    {"method": "sim",    "t": 0.88, "df": 5},
+    {"method": "sim",    "t": 0.92, "df": 6},
+    {"method": "knn",    "k": 7,    "df": 4},
+    {"method": "knn",    "k": 15,   "df": 5}
+  ]
+}

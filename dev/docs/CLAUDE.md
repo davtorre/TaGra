@@ -67,7 +67,12 @@ go.py                           # CLI entry point
 dev/                            # Development workspace (not in git)
 ├── docs/                       # This file, roadmap, paper notes
 └── tasks/                      # Test scripts and experiments
-    ├── clustering/             # DBSCAN vs TaGra comparison
+    ├── clustering/             # DBSCAN vs TaGra comparison pipeline
+    │   ├── preprocess_{hcv,ckd,cleveland}.py  # Stage 2: produce bundles
+    │   ├── run_clustering.py                  # Stage 3: unified clustering
+    │   ├── preprocess_typed.py                # Typed preprocessing + quality filter
+    │   ├── config_{hcv,ckd,cleveland}.json    # Per-dataset model parameters
+    │   └── bundles/                           # .npz + .json bundles (not in git)
     └── anomaly/                # Anomaly detection comparison
 ```
 
@@ -165,12 +170,98 @@ Constructors take `(G: nx.Graph, values: np.ndarray)` and modify G in-place. The
 
 ## Current Development Focus
 
-### Clustering task (active)
+### Clustering pipeline (active)
 
-Testing the claim that TaGra generalizes DBSCAN for clustering. Key insight: DBSCAN = distance-threshold graph + node degree filter + connected components. TaGra generalizes by allowing KNN/similarity graphs instead of distance-threshold.
+Full pipeline comparing DBSCAN vs TaGra across three UCI datasets (Cleveland Heart Disease, HCV Hepatitis C, Chronic Kidney Disease). The pipeline is split into four stages:
 
-Script: `dev/tasks/clustering/clustering_comparison.py`
-Config: `dev/tasks/clustering/clustering_config.json`
+#### 1. EDA
+Scripts in `examples/EDA/generate_eda.py`. Produces distributions, class balance, missing value summaries. Run independently — not part of preprocessing or clustering.
+
+#### 2. Preprocessing (`dev/tasks/clustering/preprocess_*.py`)
+One script per dataset. Each: loads raw data → applies column-typed preprocessing → saves a **bundle** to `dev/tasks/clustering/bundles/`.
+
+- `preprocess_hcv.py` → `bundles/hcv_bundle.npz` + `bundles/hcv_meta.json`
+- `preprocess_ckd.py` → `bundles/ckd_bundle.npz` + `bundles/ckd_meta.json`
+- `preprocess_cleveland.py` → `bundles/cleveland_bundle.npz` + `bundles/cleveland_meta.json`
+
+Bundle format: `.npz` for arrays (`X`, `X_raw`, `true_labels`), `.json` for metadata (`feat_names`, `gower_ftypes`, `dataset_name`, `class_balance`). No pickles.
+
+Column-typed preprocessing lives in `preprocess_typed.py`:
+- `continuous` → StandardScaler
+- `ordinal` → divide by max
+- `binary` → 0/1 as-is
+- `nominal` → one-hot
+- Optional final MinMaxScaler (`final_minmax=True`)
+- Gower distance uses `X_raw` (imputed but unscaled); `feature_type_map_for_gower()` returns the type list
+
+#### 3. Clustering (`dev/tasks/clustering/run_clustering.py`)
+Single unified script, config-driven. Usage:
+
+```bash
+python3 run_clustering.py --bundle bundles/hcv_bundle.npz --config config_hcv.json
+```
+
+Pipeline inside the script:
+1. **DBSCAN references** — pinned `(eps, ms)` pairs from config, always run
+2. **TaGra DBSCANConstructor equivalence** — proves TaGra/distance ≡ DBSCAN (Vm(ref)=1.0)
+3. **HDBSCAN** — `mcs` values from config
+4. **Exhaustive grid** (if `"exhaustive_grid": true` in config):
+   - DBSCAN sweep: full eps × ms grid, results **quality-filtered** before display
+   - TaGra/Gower, Similarity, KNN, Distance grids — top 20 by Vm, **quality-filtered**
+5. **Curated comparison** — explicit best configs from `cfg["curated_configs"]`, always run
+6. **Summary A** (by Vm), **Summary B** (by DBCV), **Quality-filtered summary**, **Top-3 per metric**
+7. Saves plain-text report to `clustering_results_{name}/`
+
+#### 4. Per-dataset JSON configs (`config_*.json`)
+All model parameters live in the config — no hardcoded values in the script:
+
+| Key | Purpose |
+|-----|---------|
+| `exhaustive_grid` | `true`/`false` — enables full grid sweeps |
+| `dbscan_refs` | Pinned `[{eps, ms}]` reference configs |
+| `hdbscan_mcs` | List of min_cluster_size values |
+| `dbscan_sweep` | `eps_grid`, `ms_grid` for informational sweep |
+| `gower_grid` / `sim_grid` / `knn_grid` / `dist_grid` | Grid bounds per method |
+| `curated_configs` | List of `{method, ...params}` for the comparison table |
+| `quality_criteria` | Overrides for `QUALITY_CRITERIA` defaults |
+| `summaries` | List of summary table definitions (optional, see below) |
+
+Cleveland uses `"exhaustive_grid": false` (curated comparison only). HCV and CKD use `"exhaustive_grid": true`. A sweep-only config (e.g. `config_cleveland_dbscan_sweep.json`) can set empty grids for all methods except DBSCAN.
+
+#### Summaries (config-driven, optional)
+Defined as a list in the config — omitting the key skips all summary tables:
+
+```json
+"summaries": [
+  {"name": "A", "max_noise_pct": 60.0, "sort": "vm_true"},
+  {"name": "B", "max_noise_pct": 60.0, "sort": ["dbcv", "noise_pct"]}
+]
+```
+
+- `sort` as a string → sort by that field descending
+- `sort` as a list → first field descending, remaining fields ascending
+- Any result field is valid: `vm_true`, `vm_ref`, `dbcv`, `sil`, `noise_pct`, `min_cls_pct`
+- `--top` CLI flag prints top-3 per metric at the end (also written to report)
+
+#### Quality criteria (`preprocess_typed.py`)
+`QUALITY_CRITERIA` defaults + `filter_results()` function:
+- `min_dbcv ≥ 0.2`
+- `max_noise_pct < 30%`
+- `min_cluster_size_pct ≥ 20%` of non-noise points
+- `min_n_clusters ≥ 2`
+
+Applied consistently in: DBSCAN sweep display, all exhaustive grid top-20 tables, and the final quality-filtered summary section. Curated configs are merged into `all_results` (deduplicated by name) so they also appear in the quality-filtered section.
+
+#### Key metrics (all printed as table columns)
+| Metric | Key | Description |
+|--------|-----|-------------|
+| Clusters | `n_clusters` | Number of non-noise clusters |
+| Noise% | `noise_pct` | % of points labelled as noise |
+| MinCls% | `min_cls_pct` | Smallest cluster as % of non-noise points |
+| DBCV | `dbcv` | Density-Based Clustering Validation (`hdbscan.validity`) |
+| Sil | `sil` | Silhouette score (sklearn) |
+| Vm(true) | `vm_true` | V-measure vs ground-truth binary clinical label |
+| Vm(ref) | `vm_ref` | V-measure vs DBSCAN Ref A (structural similarity) |
 
 ### Anomaly detection comparison (implemented)
 

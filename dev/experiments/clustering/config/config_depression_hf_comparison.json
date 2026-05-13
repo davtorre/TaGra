@@ -1,0 +1,25 @@
+{
+  "exhaustive_grid": false,
+
+  "dbscan_refs": [
+    {"eps": 0.8, "ms": 10},
+    {"eps": 0.9, "ms": 10}
+  ],
+  "hdbscan_mcs": [10],
+
+  "curated_configs": [
+    {"method": "dist", "t": 1.0, "df": 10}
+  ],
+
+  "summaries": [
+    {"name": "A", "max_noise_pct": 60.0, "sort": "vm_true"},
+    {"name": "B", "max_noise_pct": 60.0, "sort": ["dbcv", "noise_pct"]}
+  ],
+
+  "quality_criteria": {
+    "min_n_clusters":        2,
+    "max_noise_pct":        33.0,
+    "min_cluster_size_pct":  3.0,
+    "min_dbcv":              0.2
+  }
+}

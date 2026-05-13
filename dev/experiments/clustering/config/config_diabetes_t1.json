@@ -1,0 +1,61 @@
+{
+  "exhaustive_grid": true,
+
+  "dbscan_refs": [
+    {"eps": 1.0, "ms": 3},
+    {"eps": 1.5, "ms": 3}
+  ],
+  "hdbscan_mcs": [2, 3, 5, 7],
+
+  "dbscan_sweep": {
+    "eps_grid": [0.5, 0.7, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0],
+    "ms_grid":  [2, 3, 5, 7]
+  },
+  "gower_grid": {
+    "metrics":    ["range", "quadratic", "gaussian", "laplacian"],
+    "thresholds": [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50],
+    "df_range":   [1, 8]
+  },
+  "sim_grid": {
+    "thresholds": [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86,
+                   0.88, 0.90, 0.92, 0.94, 0.95],
+    "df_range":   [1, 8]
+  },
+  "knn_grid": {
+    "k_range":  [2, 15],
+    "df_range": [1, 8]
+  },
+  "dist_grid": {
+    "thresholds": [0.5, 0.7, 1.0, 1.2, 1.5, 2.0, 2.5],
+    "df_range":   [1, 8]
+  },
+
+  "summaries": [
+    {"name": "A", "max_noise_pct": 70.0, "sort": "vm_true"},
+    {"name": "B", "max_noise_pct": 70.0, "sort": ["dbcv", "noise_pct"]}
+  ],
+
+  "quality_criteria": {
+    "min_dbcv":              0.2,
+    "max_noise_pct":        30.0,
+    "min_cluster_size_pct": 20.0,
+    "min_n_clusters":        2
+  },
+
+  "curated_configs": [
+    {"method": "dbscan",        "eps": 1.0,  "ms": 3},
+    {"method": "dbscan",        "eps": 1.5,  "ms": 3},
+    {"method": "dbscan_constr", "eps": 1.0,  "ms": 3},
+    {"method": "hdbscan",       "mcs": 3},
+    {"method": "hdbscan",       "mcs": 5},
+    {"method": "gower",  "metric": "range",    "t": 0.20, "df": 2},
+    {"method": "gower",  "metric": "gaussian", "t": 0.25, "df": 2},
+    {"method": "gower",  "metric": "laplacian","t": 0.20, "df": 2},
+    {"method": "dist",   "t": 1.0,  "df": 3},
+    {"method": "dist",   "t": 1.5,  "df": 3},
+    {"method": "sim",    "t": 0.85, "df": 4},
+    {"method": "sim",    "t": 0.90, "df": 4},
+    {"method": "knn",    "k": 4,    "df": 3},
+    {"method": "knn",    "k": 7,    "df": 4}
+  ]
+}
