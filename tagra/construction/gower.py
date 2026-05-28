@@ -230,7 +230,13 @@ class GowerDistanceConstructor(GraphConstructor):
         feature_types: List[str],
     ) -> np.ndarray:
         """
-        Compute the full n×n Gower distance matrix.
+        Compute the full n×n Gower distance matrix with native NaN handling.
+
+        For each pair (i, j) and feature k, the feature is included in the
+        distance only if both x_ik and x_jk are observed (not NaN).  The
+        denominator counts only the observed features for each pair, following
+        Gower (1971).  Pairs that share no observed features are assigned the
+        maximum distance of 1.0.
 
         Returns
         -------
@@ -238,42 +244,75 @@ class GowerDistanceConstructor(GraphConstructor):
             Symmetric matrix with values in [0, 1].
         """
         n, p = values.shape
-        D_sum = np.zeros((n, n), dtype=np.float64)
+        D_sum   = np.zeros((n, n), dtype=np.float64)
+        D_count = np.zeros((n, n), dtype=np.float64)
 
         for k, ftype in enumerate(feature_types):
             col = values[:, k]
+
+            # Pairwise validity mask: both values must be non-NaN
+            observed   = ~np.isnan(col)                          # shape (n,)
+            valid_pair = observed[:, None] & observed[None, :]   # shape (n, n)
+
             if ftype in ('binary', 'nominal'):
-                # indicator distance: 0 if equal, 1 if unequal
-                # works for any value (0/1 flags or arbitrary category codes)
-                d_k = (col[:, None] != col[None, :]).astype(np.float64)
+                # Replace NaN with a sentinel that never compares equal to any
+                # real value, so the comparison result is well-defined.
+                # (The result for NaN positions is zeroed out by valid_pair.)
+                col_safe = np.where(observed, col, np.inf)
+                d_k = (col_safe[:, None] != col_safe[None, :]).astype(np.float64)
             else:
-                # 'continuous' and 'ordinal' both use the continuous metric
-                d_k = self._continuous_partial(col)
-            D_sum += d_k
+                # 'continuous' and 'ordinal'
+                d_k = self._continuous_partial(col, observed)
 
-        return D_sum / p
+            D_sum   += np.where(valid_pair, d_k,  0.0)
+            D_count += valid_pair.astype(np.float64)
 
-    def _continuous_partial(self, col: np.ndarray) -> np.ndarray:
+        # Pairs with no features in common: assign maximum distance
+        no_common = D_count == 0
+        D = np.where(no_common, 1.0, D_sum / np.where(no_common, 1.0, D_count))
+        return D
+
+    def _continuous_partial(
+        self,
+        col: np.ndarray,
+        observed: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Partial distance matrix for a single continuous or ordinal feature.
 
+        Parameters
+        ----------
+        col : np.ndarray, shape (n,)
+            Raw feature values; may contain NaN.
+        observed : np.ndarray of bool, shape (n,), optional
+            Mask of non-NaN entries.  If None, all entries are treated as
+            observed (backward-compatible behaviour).
+
         All returned values are in [0, 1].
         """
-        abs_diff = np.abs(col[:, None] - col[None, :])
+        if observed is None:
+            observed = ~np.isnan(col)
+
+        # Replace NaN with 0 for arithmetic; these positions are masked out
+        # by the valid_pair matrix in _gower_matrix.
+        col_safe = np.where(observed, col, 0.0)
+        col_obs  = col[observed]   # observed values only — for range / sigma
+
+        abs_diff = np.abs(col_safe[:, None] - col_safe[None, :])
 
         if self.continuous_metric in ('range', 'quadratic'):
-            r = col.max() - col.min()
+            r = (col_obs.max() - col_obs.min()) if len(col_obs) > 1 else 0.0
             if r == 0:
                 return (abs_diff > 0).astype(np.float64)
             d = abs_diff / r
             return d ** 2 if self.continuous_metric == 'quadratic' else d
 
-        sigma = col.std()
+        sigma = col_obs.std() if len(col_obs) > 1 else 0.0
         if sigma == 0:
             return (abs_diff > 0).astype(np.float64)
 
         if self.continuous_metric == 'gaussian':
-            diff_sq = (col[:, None] - col[None, :]) ** 2
+            diff_sq = (col_safe[:, None] - col_safe[None, :]) ** 2
             return 1.0 - np.exp(-diff_sq / (2.0 * sigma ** 2))
 
         # laplacian
