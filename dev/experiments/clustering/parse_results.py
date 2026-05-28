@@ -174,21 +174,14 @@ def main():
     records = []
 
     for entry in sorted(os.listdir(args.results)):
-        subdir = os.path.join(args.results, entry)
-        if not (os.path.isdir(subdir) and entry.startswith("clustering_results_")):
+        if not entry.endswith("_report.txt"):
+            continue
+        report_path = os.path.join(args.results, entry)
+        if not os.path.isfile(report_path):
             continue
 
-        # Find the report file
-        txt_files = [f for f in os.listdir(subdir) if f.endswith("_report.txt")]
-        if not txt_files:
-            print(f"  [skip] no report in {entry}")
-            continue
-        report_path = os.path.join(subdir, txt_files[0])
-
-        # Extract dataset name from first line: "DatasetName – Clustering Comparison"
-        with open(report_path) as fh:
-            first_line = fh.readline().strip()
-        dataset = first_line.split("–")[0].strip()
+        # Extract dataset name from filename: "{dataset}_report.txt"
+        dataset = entry[: -len("_report.txt")]
 
         rows = parse_report(report_path)
         for row in rows:

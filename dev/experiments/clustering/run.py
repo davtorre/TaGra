@@ -22,6 +22,8 @@ The --meta path defaults to <bundle_stem>_meta.json in the same directory.
 
 import os, sys, json, argparse, warnings
 import numpy as np
+import pandas as pd
+import scipy.stats as stats
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="hdbscan")
 import networkx as nx
@@ -55,6 +57,61 @@ try:
     HDBSCAN_AVAILABLE = True
 except ImportError:
     HDBSCAN_AVAILABLE = False
+
+
+# ── Method key extraction ─────────────────────────────────────────────────────
+
+_METHOD_KEY_MAP = [
+    ("TaGra/DBSCANConstr (", "dbscan_constr"),
+    ("TaGra/Gower (",        "gower"),
+    ("TaGra/Sim (",          "sim"),
+    ("TaGra/KNN (",          "knn"),
+    ("TaGra/Dist (",         "dist"),
+    ("HDBSCAN (",            "hdbscan"),
+    ("DBSCAN (",             "dbscan"),
+]
+
+def _method_key(name):
+    for prefix, key in _METHOD_KEY_MAP:
+        if name.startswith(prefix):
+            return key
+    return None
+
+
+# ── Outcome table ─────────────────────────────────────────────────────────────
+
+def compute_outcome_table(cluster_labels, y_true, dataset_name, method_name):
+    cluster_labels = np.asarray(cluster_labels)
+    y_true = np.asarray(y_true)
+
+    non_noise = cluster_labels != -1
+    chi2_pval = float("nan")
+    if non_noise.sum() > 0:
+        sub_labels = cluster_labels[non_noise]
+        sub_y = y_true[non_noise]
+        if len(np.unique(sub_labels)) >= 2 and len(np.unique(sub_y)) >= 2:
+            contingency = pd.crosstab(sub_labels, sub_y)
+            try:
+                _, chi2_pval, _, _ = stats.chi2_contingency(contingency)
+            except Exception:
+                chi2_pval = float("nan")
+
+    rows = []
+    for c in sorted(set(cluster_labels)):
+        mask = cluster_labels == c
+        n = int(mask.sum())
+        n_pos = int((y_true[mask] != 0).sum())
+        rate = n_pos / n if n > 0 else float("nan")
+        rows.append({
+            "dataset":            dataset_name,
+            "method":             method_name,
+            "cluster":            int(c),
+            "n":                  n,
+            "n_outcome_positive": n_pos,
+            "outcome_rate":       round(rate, 4),
+            "chi2_pval":          chi2_pval,
+        })
+    return rows, chi2_pval
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
@@ -284,11 +341,15 @@ def main(bundle_path, meta_path, cfg, show_top3=False, skip_codecarbon=False):
     dataset_name = meta["dataset_name"]
     gower_ftypes = meta["gower_ftypes"]
     feat_names   = meta["feat_names"]
+    # dataset_id: underscore-separated, from bundle filename (e.g. cardiac_arrest)
+    dataset_id   = os.path.basename(bundle_path).replace("_bundle.npz", "")
 
-    output_dir = os.path.join(
-        os.path.dirname(__file__), "results", "reports"
-    )
+    script_dir = os.path.dirname(__file__)
+    output_dir = os.path.join(script_dir, "results", "reports")
+    results_dir = os.path.join(script_dir, "results")
     os.makedirs(output_dir, exist_ok=True)
+
+    all_outcome_rows = []
 
     # Resolve quality criteria once — used in sweep filters and summaries
     qc = {**QUALITY_CRITERIA, **cfg.get("quality_criteria", {})}
@@ -534,8 +595,51 @@ def main(bundle_path, meta_path, cfg, show_top3=False, skip_codecarbon=False):
     else:
         print("  (no results pass all criteria)")
 
+    # ── Outcome tables (best valid config per method) ──────────────────────
+    method_best = {}
+    for r in qc_rows:
+        key = _method_key(r["name"])
+        if key is None:
+            continue
+        if key not in method_best or (r.get("dbcv") or -999) > (method_best[key].get("dbcv") or -999):
+            method_best[key] = r
+
+    labels_dir = os.path.join(results_dir, "labels")
+    os.makedirs(labels_dir, exist_ok=True)
+
+    outcome_print_lines = []
+    for method_key_str, best_r in sorted(method_best.items()):
+        best_labels = best_r["labels"]
+        o_rows, pval = compute_outcome_table(
+            best_labels, true_labels, dataset_id, method_key_str
+        )
+        all_outcome_rows.extend(o_rows)
+        np.save(
+            os.path.join(labels_dir, f"{dataset_id}_{method_key_str}.npy"),
+            best_labels,
+        )
+        pval_str = f"{pval:.4g}" if not (isinstance(pval, float) and pval != pval) else "n/a"
+        hdr_line = (f"  {best_r['name']:<52}  chi2 p={pval_str}")
+        tbl_lines = [
+            "    Cluster  |   n  | Outcome+ |  Rate  | chi2 p",
+            "    ---------|------|----------|--------|--------",
+        ]
+        for o in o_rows:
+            lbl = "Noise" if o["cluster"] == -1 else str(o["cluster"])
+            tbl_lines.append(
+                f"    {lbl:>7}  | {o['n']:>4} | {o['n_outcome_positive']:>8} |"
+                f" {o['outcome_rate']*100:>5.1f}% | {pval_str}"
+            )
+        outcome_print_lines.append(hdr_line)
+        outcome_print_lines.extend(tbl_lines)
+
+    print(f"\n{'='*78}")
+    print("OUTCOME TABLES  (best valid config per method)")
+    for line in outcome_print_lines:
+        print(line)
+
     # ── Save report ────────────────────────────────────────────────────────
-    report_path = os.path.join(output_dir, f"{dataset_name.lower()}_report.txt")
+    report_path = os.path.join(output_dir, f"{dataset_id}_report.txt")
 
     def _write_section(fh, title, rows, show_vm_ref=False):
         fh.write("=" * 141 + "\n")
@@ -580,11 +684,24 @@ def main(bundle_path, meta_path, cfg, show_top3=False, skip_codecarbon=False):
         else:
             f.write("  (no results pass all criteria)\n")
 
+        f.write("=" * 141 + "\n")
+        f.write("OUTCOME TABLES  (best valid config per method)\n")
+        for line in outcome_print_lines:
+            f.write(line + "\n")
+        f.write("\n")
+
         if show_top3:
             top3_summary(valid_low, fh=f, skip_codecarbon=skip_codecarbon)
 
     if show_top3:
         top3_summary(valid_low, skip_codecarbon=skip_codecarbon)
+
+    # ── Write outcome_tables.csv ───────────────────────────────────────────
+    if all_outcome_rows:
+        outcome_csv = os.path.join(results_dir, "outcome_tables.csv")
+        df_out = pd.DataFrame(all_outcome_rows)
+        write_header = not os.path.exists(outcome_csv)
+        df_out.to_csv(outcome_csv, mode="a", header=write_header, index=False)
 
     print(f"\nReport saved: {report_path}")
     print(f"Total configurations tested: {len(all_results)}")
