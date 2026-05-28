@@ -42,16 +42,10 @@ def load_diabetes_t1() -> pd.DataFrame:
 
 
 def prepare_raw_for_gower(df: pd.DataFrame):
-    df2 = df.copy()
-    for col, strat in DIABETES_T1_IMPUTE.items():
-        if col not in df2.columns:
-            continue
-        df2[col] = df2[col].fillna(
-            df2[col].median() if strat == "median" else df2[col].mode()[0]
-        )
+    """Return the raw feature matrix (NaN preserved) for GowerDistanceConstructor."""
     feat_cols = [c for c, t in DIABETES_T1_SPEC.items()
-                 if t not in ("target", "id") and c in df2.columns]
-    return df2[feat_cols].astype(float).values, feat_cols
+                 if t not in ("target", "id") and c in df.columns]
+    return df[feat_cols].astype(float).values, feat_cols
 
 
 def main():
