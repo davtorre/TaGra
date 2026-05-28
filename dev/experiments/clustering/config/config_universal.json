@@ -2,7 +2,12 @@
   "exhaustive_grid": true,
   "max_clusters": 20,
 
-  "dbscan_refs": [],
+  "dbscan_refs": [
+    {"eps": 0.3,  "ms": 20, "note": "HCV best DBSCAN"},
+    {"eps": 1.0,  "ms": 20, "note": "Sepsis best DBSCAN"},
+    {"eps": 0.8,  "ms":  5, "note": "DiabetesT1 best DBSCAN"},
+    {"eps": 1.2,  "ms": 10, "note": "Neuroblastoma best DBSCAN"}
+  ],
   "hdbscan_mcs": [2, 3, 5, 7, 10, 15, 20, 30, 50],
 
   "dbscan_sweep": {
